@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /CommonBe/agmsmith/Programming/AGMSBayesianSpam/Server/RCS/AGMSBayesianSpamServer.cpp,v 1.74 2002/12/14 02:43:57 agmsmith Exp $
+ * $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.1 2014/04/22 20:45:43 agmsmith Exp agmsmith $
  *
  * This is a BeOS program for obfuscating files and directories.  It
  * recursively copies the given file or directory to ones where all
@@ -8,12 +8,19 @@
  * same goes for attribute values and the file contents.  The end result should
  * be very compressable, suitable for uploading in a .zip file.
  *
- * $Log: AGMSBayesianSpamServer.cpp,v $
+ * Originally used for recreating Haiku OS file system bugs involved in copying
+ * hundreds of thousands of e-mails without revealing personal data, and making
+ * it small enough to fit in a Zip file.
+ *
+ * $Log: ObfuscatorOfDirectoryTrees.cpp,v $
+ * Revision 1.1  2014/04/22 20:45:43  agmsmith
+ * Initial revision
  */
 
 /* Standard C Library. */
 
 #include <stdio.h>
+#include <ctype.h>
 #include <errno.h>
 
 /* Standard C++ library. */
@@ -155,7 +162,7 @@ ostream& PrintUsage (ostream& OutputStream)
   OutputStream << "Copyright © 2014 by Alexander G. M. Smith.\n";
   OutputStream << "Released to the public domain.\n\n";
   WrapTextToStream (OutputStream, "Compiled on " __DATE__ " at " __TIME__
-".  $Revision: 1.74 $  $Header: /CommonBe/agmsmith/Programming/AGMSBayesianSpam/Server/RCS/AGMSBayesianSpamServer.cpp,v 1.74 2002/12/14 02:43:57 agmsmith Exp $");
+".  $Revision: 1.1 $  $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.1 2014/04/22 20:45:43 agmsmith Exp agmsmith $");
   OutputStream << "
 This is a program for copying a directory tree to a new directory tree with
 most of the identifying information obfuscated.  File and directory names, file
@@ -170,7 +177,7 @@ with indexing of attributes.  Since the test data is personal e-mails, and is
 too big to fit in a Zip file, obfuscating it while keeping the lengths of data
 items the same should be sufficient for recreating the bug.
 
-Usage: " PROGRAM_NAME " InputDir OutputDir\n"
+Usage: " PROGRAM_NAME " InputDir OutputDir\n";
 
   return OutputStream;
 }
