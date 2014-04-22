@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.2 2014/04/22 20:54:15 agmsmith Exp agmsmith $
+ * $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.3 2014/04/22 21:01:54 agmsmith Exp agmsmith $
  *
  * This is a BeOS program for obfuscating files and directories.  It
  * recursively copies the given file or directory to ones where all
@@ -13,6 +13,10 @@
  * it small enough to fit in a Zip file.
  *
  * $Log: ObfuscatorOfDirectoryTrees.cpp,v $
+ * Revision 1.3  2014/04/22 21:01:54  agmsmith
+ * Got rid of a lot of ANSI C++ warnings about new line inside strings,
+ * convenient though it may be.
+ *
  * Revision 1.2  2014/04/22 20:54:15  agmsmith
  * Now compiles!
  *
@@ -165,7 +169,7 @@ ostream& PrintUsage (ostream& OutputStream)
   OutputStream << "Copyright © 2014 by Alexander G. M. Smith.\n";
   OutputStream << "Released to the public domain.\n\n";
   WrapTextToStream (OutputStream, "Compiled on " __DATE__ " at " __TIME__
-".  $Revision: 1.2 $  $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.2 2014/04/22 20:54:15 agmsmith Exp agmsmith $");
+".  $Revision: 1.3 $  $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.3 2014/04/22 21:01:54 agmsmith Exp agmsmith $");
   OutputStream << "\n"
 "This is a program for copying a directory tree to a new directory tree with\n"
 "most of the identifying information obfuscated.  File and directory names,\n"
@@ -178,9 +182,12 @@ ostream& PrintUsage (ostream& OutputStream)
 "The original purpose of this program is to recreate a Haiku OS file system bug\n"
 "with indexing of attributes.  Since the test data is personal e-mails, and is\n"
 "too big to fit in a Zip file, obfuscating it while keeping the lengths of data\n"
-"items the same should be sufficient for recreating the bug.\n"
+"items the same should be sufficient for recreating the bug, as well as making\n"
+"it compress really well.\n"
 "\n"
-"Usage: " PROGRAM_NAME " InputDir OutputDir\n";
+"Usage: " PROGRAM_NAME " [-v] InputDir OutputDir\n"
+"\n"
+"-v for verbose mode, where it lists the directories and files copied.\n\n";
 
   return OutputStream;
 }
