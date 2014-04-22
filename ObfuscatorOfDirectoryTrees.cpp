@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.3 2014/04/22 21:01:54 agmsmith Exp agmsmith $
+ * $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.4 2014/04/22 21:07:32 agmsmith Exp agmsmith $
  *
  * This is a BeOS program for obfuscating files and directories.  It
  * recursively copies the given file or directory to ones where all
@@ -13,6 +13,9 @@
  * it small enough to fit in a Zip file.
  *
  * $Log: ObfuscatorOfDirectoryTrees.cpp,v $
+ * Revision 1.4  2014/04/22 21:07:32  agmsmith
+ * Wording improved.
+ *
  * Revision 1.3  2014/04/22 21:01:54  agmsmith
  * Got rid of a lot of ANSI C++ warnings about new line inside strings,
  * convenient though it may be.
@@ -36,7 +39,6 @@
 
 /* BeOS (Be Operating System) headers. */
 
-#include <Application.h>
 #include <Directory.h>
 #include <Entry.h>
 #include <File.h>
@@ -50,6 +52,8 @@
  */
 
 #define PROGRAM_NAME "ObfuscatorOfDirectoryTrees"
+
+bool gVerbose = false;
 
 
 /******************************************************************************
@@ -165,11 +169,11 @@ static void WrapTextToStream (ostream& OutputStream, const char *TextPntr)
  */
 ostream& PrintUsage (ostream& OutputStream)
 {
-  OutputStream << "\n" PROGRAM_NAME "\n";
+  OutputStream << "\n" PROGRAM_NAME "\n\n";
   OutputStream << "Copyright © 2014 by Alexander G. M. Smith.\n";
   OutputStream << "Released to the public domain.\n\n";
   WrapTextToStream (OutputStream, "Compiled on " __DATE__ " at " __TIME__
-".  $Revision: 1.3 $  $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.3 2014/04/22 21:01:54 agmsmith Exp agmsmith $");
+".  $Revision: 1.4 $  $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.4 2014/04/22 21:07:32 agmsmith Exp agmsmith $");
   OutputStream << "\n"
 "This is a program for copying a directory tree to a new directory tree with\n"
 "most of the identifying information obfuscated.  File and directory names,\n"
@@ -193,16 +197,101 @@ ostream& PrintUsage (ostream& OutputStream)
 }
 
 
+/******************************************************************************
+ * Given an already existing source and destination directory, copy/obfuscate
+ * all the files and directories within it.
+ */
+static status_t ObfuscateDirectory (BDirectory &SourceDir, BDirectory &DestDir)
+{
+  if (gVerbose)
+  {
+    BPath DestPath (&DestDir, ".");
+    BPath SourcePath (&SourceDir, ".");
+    cout << "Processing directory \"" << SourcePath.Path() << "\"" <<
+      " into \"" << DestPath.Path() << "\"" << endl;
+  }
+
+  return 0;
+}
+
 
 /******************************************************************************
  * Finally, the main program which drives it all.
  */
 
-int main (int argc, char**)
+int main (int argc, char** argv)
 {
-  if (argc <= 1)
-    cout << PrintUsage; /* In case no arguments specified. */
+  BDirectory DestDir;
+  status_t ErrorNumber;
+  BDirectory SourceDir;
+
+  enum ArgStateEnum {ASE_LOOKING_FOR_SOURCE, ASE_LOOKING_FOR_DEST, ASE_DONE}
+    eArgState = ASE_LOOKING_FOR_SOURCE;
+
+  int iArg;
+  for (iArg = 1; iArg < argc; iArg++)
+  {
+    char ErrorMessage [1024];
+
+    if (strlen(argv[iArg]) > sizeof (ErrorMessage) - 100)
+      cerr << "Argument is too long, ignoring it: " << argv[iArg] << endl;
+    else if (strcmp(argv[iArg], "-v") == 0)
+      gVerbose = true;
+    else if (eArgState == ASE_LOOKING_FOR_SOURCE)
+    {
+      ErrorNumber = SourceDir.SetTo(argv[iArg]);
+      if (ErrorNumber != B_OK)
+      {
+        sprintf(ErrorMessage,
+          "Unable to open source directory \"%s\"", argv[iArg]);
+        DisplayErrorMessage (ErrorMessage, ErrorNumber);
+        break;
+      }
+      eArgState = ASE_LOOKING_FOR_DEST;
+    }
+    else if (eArgState == ASE_LOOKING_FOR_DEST)
+    {
+      ErrorNumber = DestDir.SetTo(argv[iArg]);
+      if (ErrorNumber == B_ENTRY_NOT_FOUND)
+      {
+        ErrorNumber = create_directory(argv[iArg], 0777);
+        if (ErrorNumber == B_OK)
+        {
+          if (gVerbose)
+            cout << "Created destination directory \"" << argv[iArg] << "\"\n";
+        }
+        else
+        {
+          sprintf(ErrorMessage,
+            "Unable to create destination directory \"%s\"", argv[iArg]);
+          DisplayErrorMessage (ErrorMessage, ErrorNumber);
+          break;
+        }
+        ErrorNumber = DestDir.SetTo(argv[iArg]);
+      }
+      if (ErrorNumber != B_OK)
+      {
+        sprintf(ErrorMessage,
+          "Unable to open destination directory \"%s\"", argv[iArg]);
+        DisplayErrorMessage (ErrorMessage, ErrorNumber);
+        break;
+      }
+      eArgState = ASE_DONE;
+    }
+  }
+
+  if (eArgState != ASE_DONE)
+  {
+    cerr << "Insufficient number of valid arguments provided.\n";
+    PrintUsage(cout);
+    ErrorNumber = -1;
+  }
+  else
+  {
+    ErrorNumber = ObfuscateDirectory (SourceDir, DestDir);
+  }
 
   cerr << PROGRAM_NAME " shutting down..." << endl;
-  return 0;
+
+  return ErrorNumber; // Zero for success.
 }
