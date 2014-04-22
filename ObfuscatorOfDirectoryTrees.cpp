@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.1 2014/04/22 20:45:43 agmsmith Exp agmsmith $
+ * $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.2 2014/04/22 20:54:15 agmsmith Exp agmsmith $
  *
  * This is a BeOS program for obfuscating files and directories.  It
  * recursively copies the given file or directory to ones where all
@@ -13,6 +13,9 @@
  * it small enough to fit in a Zip file.
  *
  * $Log: ObfuscatorOfDirectoryTrees.cpp,v $
+ * Revision 1.2  2014/04/22 20:54:15  agmsmith
+ * Now compiles!
+ *
  * Revision 1.1  2014/04/22 20:45:43  agmsmith
  * Initial revision
  */
@@ -88,7 +91,7 @@ static void DisplayErrorMessage (
  * result on the given output stream.
  */
 
-static void WrapTextToStream (ostream& OutputStream, char *TextPntr)
+static void WrapTextToStream (ostream& OutputStream, const char *TextPntr)
 {
   const int LineLength = 79;
   char     *StringPntr;
@@ -162,22 +165,22 @@ ostream& PrintUsage (ostream& OutputStream)
   OutputStream << "Copyright © 2014 by Alexander G. M. Smith.\n";
   OutputStream << "Released to the public domain.\n\n";
   WrapTextToStream (OutputStream, "Compiled on " __DATE__ " at " __TIME__
-".  $Revision: 1.1 $  $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.1 2014/04/22 20:45:43 agmsmith Exp agmsmith $");
-  OutputStream << "
-This is a program for copying a directory tree to a new directory tree with
-most of the identifying information obfuscated.  File and directory names, file
-contents and so on are replaced by sequential numbers, mostly consisting of
-leading zeroes so that the new value matches the length of the old value.
-Attribute names are kept, but values are converted to sequential numbers.  The
-sequential numbers are used so that a directory listing will be in the same
-order as the original one.
-
-The original purpose of this program is to recreate a Haiku OS file system bug
-with indexing of attributes.  Since the test data is personal e-mails, and is
-too big to fit in a Zip file, obfuscating it while keeping the lengths of data
-items the same should be sufficient for recreating the bug.
-
-Usage: " PROGRAM_NAME " InputDir OutputDir\n";
+".  $Revision: 1.2 $  $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.2 2014/04/22 20:54:15 agmsmith Exp agmsmith $");
+  OutputStream << "\n"
+"This is a program for copying a directory tree to a new directory tree with\n"
+"most of the identifying information obfuscated.  File and directory names,\n"
+"file contents and so on are replaced by sequential numbers, mostly consisting\n"
+"of leading zeroes so that the new value matches the length of the old value.\n"
+"Attribute names are kept, but values are converted to sequential numbers.  The\n"
+"sequential numbers are used so that a directory listing will be in the same\n"
+"order as the original one.\n"
+"\n"
+"The original purpose of this program is to recreate a Haiku OS file system bug\n"
+"with indexing of attributes.  Since the test data is personal e-mails, and is\n"
+"too big to fit in a Zip file, obfuscating it while keeping the lengths of data\n"
+"items the same should be sufficient for recreating the bug.\n"
+"\n"
+"Usage: " PROGRAM_NAME " InputDir OutputDir\n";
 
   return OutputStream;
 }
