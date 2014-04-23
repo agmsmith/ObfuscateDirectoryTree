@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.4 2014/04/22 21:07:32 agmsmith Exp agmsmith $
+ * $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.5 2014/04/22 22:01:25 agmsmith Exp agmsmith $
  *
  * This is a BeOS program for obfuscating files and directories.  It
  * recursively copies the given file or directory to ones where all
@@ -13,6 +13,9 @@
  * it small enough to fit in a Zip file.
  *
  * $Log: ObfuscatorOfDirectoryTrees.cpp,v $
+ * Revision 1.5  2014/04/22 22:01:25  agmsmith
+ * Now processes command line arguments, opens directories, and does nothing.
+ *
  * Revision 1.4  2014/04/22 21:07:32  agmsmith
  * Wording improved.
  *
@@ -36,9 +39,12 @@
 /* Standard C++ library. */
 
 #include <iostream>
+#include <new> // For nothrow option when new'ing memory.
 
 /* BeOS (Be Operating System) headers. */
 
+#include <fs_attr.h>
+#include <Node.h>
 #include <Directory.h>
 #include <Entry.h>
 #include <File.h>
@@ -48,20 +54,21 @@
 
 
 /******************************************************************************
- * Global variables, and not-so-variable things too.  Grouped by functionality.
+ * Global variables, and not-so-variable things too.
  */
 
 #define PROGRAM_NAME "ObfuscatorOfDirectoryTrees"
 
 bool gVerbose = false;
+int gSequenceNumber = 0;
 
 
 /******************************************************************************
  * Global utility function to display an error message and return.  The message
  * part describes the error, and if ErrorNumber is non-zero, gets the string ",
  * error code $X (standard description)." appended to it.  If the message is
- * NULL then it gets defaulted to "Something went wrong".  The title part
- * doesn't get displayed.  The error gets printed to stderr.
+ * NULL then it gets defaulted to "Something went wrong".  The title part is
+ * printed before the whole thing.  The text gets printed to stderr.
  */
 
 static void DisplayErrorMessage (
@@ -173,7 +180,7 @@ ostream& PrintUsage (ostream& OutputStream)
   OutputStream << "Copyright © 2014 by Alexander G. M. Smith.\n";
   OutputStream << "Released to the public domain.\n\n";
   WrapTextToStream (OutputStream, "Compiled on " __DATE__ " at " __TIME__
-".  $Revision: 1.4 $  $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.4 2014/04/22 21:07:32 agmsmith Exp agmsmith $");
+".  $Revision: 1.5 $  $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.5 2014/04/22 22:01:25 agmsmith Exp agmsmith $");
   OutputStream << "\n"
 "This is a program for copying a directory tree to a new directory tree with\n"
 "most of the identifying information obfuscated.  File and directory names,\n"
@@ -198,9 +205,73 @@ ostream& PrintUsage (ostream& OutputStream)
 
 
 /******************************************************************************
+ * Copy the attributes from a source (file or directory) to a similar type of
+ * destination.
+ */
+
+static status_t ObfuscateAttributes (BNode &SourceNode, BNode &DestNode)
+{
+  char AttributeName[B_ATTR_NAME_LENGTH+1];
+  char ErrorMessage[B_ATTR_NAME_LENGTH+80];
+  status_t ErrorNumber;
+
+  ErrorNumber = SourceNode.RewindAttrs();
+  if (ErrorNumber != B_OK)
+  {
+    DisplayErrorMessage ("Unable to rewind to first attribute", ErrorNumber,
+      "ObfuscateAttributes");
+    return ErrorNumber;
+  }
+
+  while (B_OK == (ErrorNumber = SourceNode.GetNextAttrName(AttributeName)))
+  {
+    struct attr_info AttributeInfo;
+    ErrorNumber = SourceNode.GetAttrInfo(AttributeName, &AttributeInfo);
+    if (ErrorNumber != B_OK)
+    {
+      sprintf (ErrorMessage, "Can't get info about \"%s\" attribute",
+        AttributeName);
+      DisplayErrorMessage (ErrorMessage, ErrorNumber, "ObfuscateAttributes");
+      return ErrorNumber;
+    }
+
+    if (AttributeInfo.size > 0) // bleeble less than
+    {
+      ErrorNumber = B_BAD_VALUE;
+      sprintf (ErrorMessage, "Attribute \"%s\" has negative size %Ld",
+        AttributeName, AttributeInfo.size);
+      DisplayErrorMessage (ErrorMessage, ErrorNumber, "ObfuscateAttributes");
+      return ErrorNumber;
+    }
+
+    char *pData = new (std::nothrow) char [AttributeInfo.size];
+    if (pData == NULL)
+    {
+      ErrorNumber = B_NO_MEMORY;
+      sprintf (ErrorMessage,
+        "Unable to allocate memory for attribute \"%s\" size %Ld",
+        AttributeName, AttributeInfo.size);
+      DisplayErrorMessage (ErrorMessage, ErrorNumber, "ObfuscateAttributes");
+      return ErrorNumber;
+    }
+bleeble;
+  }
+
+  if (ErrorNumber == B_ENTRY_NOT_FOUND)
+    ErrorNumber = B_OK; // Reaching end of list isn't an error.
+  else
+    DisplayErrorMessage ("Problems reading attribute name list", ErrorNumber,
+      "ObfuscateAttributes");
+  
+  return ErrorNumber;
+}
+
+
+/******************************************************************************
  * Given an already existing source and destination directory, copy/obfuscate
  * all the files and directories within it.
  */
+
 static status_t ObfuscateDirectory (BDirectory &SourceDir, BDirectory &DestDir)
 {
   if (gVerbose)
@@ -244,7 +315,7 @@ int main (int argc, char** argv)
       {
         sprintf(ErrorMessage,
           "Unable to open source directory \"%s\"", argv[iArg]);
-        DisplayErrorMessage (ErrorMessage, ErrorNumber);
+        DisplayErrorMessage (ErrorMessage, ErrorNumber, "Main");
         break;
       }
       eArgState = ASE_LOOKING_FOR_DEST;
@@ -264,7 +335,7 @@ int main (int argc, char** argv)
         {
           sprintf(ErrorMessage,
             "Unable to create destination directory \"%s\"", argv[iArg]);
-          DisplayErrorMessage (ErrorMessage, ErrorNumber);
+          DisplayErrorMessage (ErrorMessage, ErrorNumber, "Main");
           break;
         }
         ErrorNumber = DestDir.SetTo(argv[iArg]);
@@ -273,7 +344,7 @@ int main (int argc, char** argv)
       {
         sprintf(ErrorMessage,
           "Unable to open destination directory \"%s\"", argv[iArg]);
-        DisplayErrorMessage (ErrorMessage, ErrorNumber);
+        DisplayErrorMessage (ErrorMessage, ErrorNumber, "Main");
         break;
       }
       eArgState = ASE_DONE;
