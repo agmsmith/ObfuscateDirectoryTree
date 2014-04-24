@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.5 2014/04/22 22:01:25 agmsmith Exp agmsmith $
+ * $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.6 2014/04/23 21:57:37 agmsmith Exp agmsmith $
  *
  * This is a BeOS program for obfuscating files and directories.  It
  * recursively copies the given file or directory to ones where all
@@ -13,6 +13,9 @@
  * it small enough to fit in a Zip file.
  *
  * $Log: ObfuscatorOfDirectoryTrees.cpp,v $
+ * Revision 1.6  2014/04/23 21:57:37  agmsmith
+ * Attribute copying under construction.
+ *
  * Revision 1.5  2014/04/22 22:01:25  agmsmith
  * Now processes command line arguments, opens directories, and does nothing.
  *
@@ -35,6 +38,7 @@
 #include <stdio.h>
 #include <ctype.h>
 #include <errno.h>
+#include <malloc.h>
 
 /* Standard C++ library. */
 
@@ -59,8 +63,33 @@
 
 #define PROGRAM_NAME "ObfuscatorOfDirectoryTrees"
 
+int gIndentLevel = 0;
+long long int gSequenceNumber = 0;
 bool gVerbose = false;
-int gSequenceNumber = 0;
+
+
+/******************************************************************************
+ * Utility class to increment the indent level in its constructor and decrement
+ * in the destructor.
+ */
+
+class AutoIndentIncrement
+{
+public:
+  AutoIndentIncrement (int IncrementAmount = 1)
+  {
+    mIncrementAmount = IncrementAmount;
+    gIndentLevel += mIncrementAmount;
+  };
+
+  ~AutoIndentIncrement ()
+  {
+    gIndentLevel -= mIncrementAmount;
+  };
+  
+private:
+  int mIncrementAmount;
+};
 
 
 /******************************************************************************
@@ -180,7 +209,7 @@ ostream& PrintUsage (ostream& OutputStream)
   OutputStream << "Copyright © 2014 by Alexander G. M. Smith.\n";
   OutputStream << "Released to the public domain.\n\n";
   WrapTextToStream (OutputStream, "Compiled on " __DATE__ " at " __TIME__
-".  $Revision: 1.5 $  $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.5 2014/04/22 22:01:25 agmsmith Exp agmsmith $");
+".  $Revision: 1.6 $  $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.6 2014/04/23 21:57:37 agmsmith Exp agmsmith $");
   OutputStream << "\n"
 "This is a program for copying a directory tree to a new directory tree with\n"
 "most of the identifying information obfuscated.  File and directory names,\n"
@@ -205,6 +234,44 @@ ostream& PrintUsage (ostream& OutputStream)
 
 
 /******************************************************************************
+ * Obfuscate the given buffer by filling it with the sequence number in ASCII
+ * text form.  Adds as many leading zeros as needed to fill the whole buffer.
+ * Result is not NUL terminated.
+ *
+ * Since this is running in 32 bit BeOS, the buffer can be at most about 1.8GB
+ * in size, thus BufferSize is fine as an int.
+ */
+
+static void ObfuscateBuffer(char *pBuffer, int BufferSize)
+{
+  const int NumberLength = 23; // Max 64 bit number is about 20 digits.
+  char NumberString[NumberLength + 1];
+
+  if (pBuffer == NULL || BufferSize <= 0)
+  {
+    DisplayErrorMessage ("NULL or not postive size buffer inputs",
+      B_BAD_VALUE, "ObfuscateBuffer");
+    return;
+  }
+
+  memset (pBuffer, '0', BufferSize);
+  sprintf (NumberString, "%0*Ld", NumberLength, gSequenceNumber++);
+
+  // Copy as much of the number as will fit to the end of the buffer.
+
+  int CopyLength = NumberLength;
+  int StartPosition = BufferSize - NumberLength;
+  if (StartPosition < 0)
+  {
+    CopyLength += StartPosition; // Reduces amount copied.
+    StartPosition = 0;
+  }
+  memcpy (pBuffer + StartPosition, NumberString + (NumberLength - CopyLength),
+    CopyLength);
+}
+
+
+/******************************************************************************
  * Copy the attributes from a source (file or directory) to a similar type of
  * destination.
  */
@@ -212,7 +279,8 @@ ostream& PrintUsage (ostream& OutputStream)
 static status_t ObfuscateAttributes (BNode &SourceNode, BNode &DestNode)
 {
   char AttributeName[B_ATTR_NAME_LENGTH+1];
-  char ErrorMessage[B_ATTR_NAME_LENGTH+80];
+  AutoIndentIncrement AutoIndenter;
+  char ErrorMessage[B_ATTR_NAME_LENGTH+100];
   status_t ErrorNumber;
 
   ErrorNumber = SourceNode.RewindAttrs();
@@ -235,7 +303,7 @@ static status_t ObfuscateAttributes (BNode &SourceNode, BNode &DestNode)
       return ErrorNumber;
     }
 
-    if (AttributeInfo.size > 0) // bleeble less than
+    if (AttributeInfo.size < 0)
     {
       ErrorNumber = B_BAD_VALUE;
       sprintf (ErrorMessage, "Attribute \"%s\" has negative size %Ld",
@@ -254,7 +322,28 @@ static status_t ObfuscateAttributes (BNode &SourceNode, BNode &DestNode)
       DisplayErrorMessage (ErrorMessage, ErrorNumber, "ObfuscateAttributes");
       return ErrorNumber;
     }
-bleeble;
+
+    ObfuscateBuffer(pData, AttributeInfo.size);
+
+    ssize_t AmountWritten = DestNode.WriteAttr (AttributeName,
+      AttributeInfo.type, 0 /* offset */, pData, AttributeInfo.size);
+    delete [] pData; // Get rid of buffer now, makes error handling easier.
+    if (AmountWritten != AttributeInfo.size)
+    {
+      ErrorNumber = AmountWritten;
+      if (ErrorNumber >= 0)
+        ErrorNumber = B_IO_ERROR;
+      sprintf (ErrorMessage, "Only wrote %d bytes of %d for \"%s\" attribute",
+        (int) AmountWritten, (int) AttributeInfo.size, AttributeName);
+      DisplayErrorMessage (ErrorMessage, ErrorNumber, "ObfuscateAttributes");
+      return ErrorNumber;
+    }
+
+    if (gVerbose)
+    {
+      printf ("%*sAttribute \"%s\" of length %d done.\n", gIndentLevel, "",
+        AttributeName, (int) AttributeInfo.size);
+    }
   }
 
   if (ErrorNumber == B_ENTRY_NOT_FOUND)
@@ -262,7 +351,7 @@ bleeble;
   else
     DisplayErrorMessage ("Problems reading attribute name list", ErrorNumber,
       "ObfuscateAttributes");
-  
+
   return ErrorNumber;
 }
 
@@ -274,15 +363,26 @@ bleeble;
 
 static status_t ObfuscateDirectory (BDirectory &SourceDir, BDirectory &DestDir)
 {
+  status_t ErrorNumber = 0;
+
+  BPath DestPath (&DestDir, ".");
+  BPath SourcePath (&SourceDir, ".");
+
   if (gVerbose)
   {
-    BPath DestPath (&DestDir, ".");
-    BPath SourcePath (&SourceDir, ".");
-    cout << "Processing directory \"" << SourcePath.Path() << "\"" <<
-      " into \"" << DestPath.Path() << "\"" << endl;
+    printf ("%*sDirectory \"%s\" is being obfuscated into \"%s\".\n",
+      gIndentLevel, "", SourcePath.Path(), DestPath.Path());
   }
 
-  return 0;
+  ErrorNumber = ObfuscateAttributes (SourceDir, DestDir);
+  if (ErrorNumber != B_OK)
+  {
+    DisplayErrorMessage (SourcePath.Path(), ErrorNumber,
+      "Failed while processing directory");
+    return ErrorNumber;
+  }
+
+  return B_OK;
 }
 
 
@@ -362,7 +462,7 @@ int main (int argc, char** argv)
     ErrorNumber = ObfuscateDirectory (SourceDir, DestDir);
   }
 
-  cerr << PROGRAM_NAME " shutting down..." << endl;
+  cerr << PROGRAM_NAME " finished, return code " << ErrorNumber << ".\n";
 
   return ErrorNumber; // Zero for success.
 }
