@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.6 2014/04/23 21:57:37 agmsmith Exp agmsmith $
+ * $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.7 2014/04/24 19:29:49 agmsmith Exp agmsmith $
  *
  * This is a BeOS program for obfuscating files and directories.  It
  * recursively copies the given file or directory to ones where all
@@ -13,6 +13,10 @@
  * it small enough to fit in a Zip file.
  *
  * $Log: ObfuscatorOfDirectoryTrees.cpp,v $
+ * Revision 1.7  2014/04/24 19:29:49  agmsmith
+ * Now partly works - copying just the attributes of the initial directory,
+ * and obfuscating them!  Now on to recursion...
+ *
  * Revision 1.6  2014/04/23 21:57:37  agmsmith
  * Attribute copying under construction.
  *
@@ -65,7 +69,17 @@
 
 int gIndentLevel = 0;
 long long int gSequenceNumber = 0;
-bool gVerbose = false;
+
+enum eVerboseLevels
+{
+  VERBOSE_NONE = 0,
+  VERBOSE_DIR,
+  VERBOSE_FILE,
+  VERBOSE_ATTR,
+  VERBOSE_DATA,
+  VERBOSE_EXTREME_DATA,
+  VERBOSE_MAX
+} gVerboseLevel = VERBOSE_NONE;
 
 
 /******************************************************************************
@@ -86,7 +100,7 @@ public:
   {
     gIndentLevel -= mIncrementAmount;
   };
-  
+
 private:
   int mIncrementAmount;
 };
@@ -203,13 +217,14 @@ static void WrapTextToStream (ostream& OutputStream, const char *TextPntr)
 /******************************************************************************
  * Print the usage info to the stream.
  */
-ostream& PrintUsage (ostream& OutputStream)
+
+static ostream& PrintUsage (ostream& OutputStream)
 {
   OutputStream << "\n" PROGRAM_NAME "\n\n";
   OutputStream << "Copyright © 2014 by Alexander G. M. Smith.\n";
   OutputStream << "Released to the public domain.\n\n";
   WrapTextToStream (OutputStream, "Compiled on " __DATE__ " at " __TIME__
-".  $Revision: 1.6 $  $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.6 2014/04/23 21:57:37 agmsmith Exp agmsmith $");
+".  $Revision: 1.7 $  $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.7 2014/04/24 19:29:49 agmsmith Exp agmsmith $");
   OutputStream << "\n"
 "This is a program for copying a directory tree to a new directory tree with\n"
 "most of the identifying information obfuscated.  File and directory names,\n"
@@ -225,11 +240,76 @@ ostream& PrintUsage (ostream& OutputStream)
 "items the same should be sufficient for recreating the bug, as well as making\n"
 "it compress really well.\n"
 "\n"
-"Usage: " PROGRAM_NAME " [-v] InputDir OutputDir\n"
+"Usage: " PROGRAM_NAME " [-v|-vv|-vvv|-vvvv|-vvvvv] InputDir OutputDir\n"
 "\n"
-"-v for verbose mode, where it lists the directories and files copied.\n\n";
+"-v for verbose mode, where more 'v's list more progress information.\n\n";
 
   return OutputStream;
+}
+
+
+/******************************************************************************
+ * Print out a readable version of the given data buffer.  Hex dump plus
+ * strings.  Cut off after about 1K.  Indents.
+ */
+
+static void DumpBuffer (const char *pBuffer, int BufferSize)
+{
+  AutoIndentIncrement AutoIndenter;
+  const char *pBufferEnd;
+  const int BytesPerLine = 16;
+  const int MaxPrintByteCount = 320;
+
+  if (pBuffer == NULL || BufferSize <= 0)
+    return;
+
+  if (gVerboseLevel < VERBOSE_EXTREME_DATA &&
+  BufferSize > MaxPrintByteCount)
+    pBufferEnd = pBuffer + MaxPrintByteCount;
+  else
+    pBufferEnd = pBuffer + BufferSize;
+
+  // Each byte printed uses 4 bytes of output: 2 for the hex digits, 1 for the
+  // string value, and one space.  Format is:
+  // 00 11 22 33 44 55 66 77 88 99 00 aa bb cc dd ee ff "0123456789abcdef"
+  char OutputLine[BytesPerLine * 4 + 3];
+
+  int LineBytes = 0;
+  memset (OutputLine, ' ', sizeof (OutputLine) - 1);
+  OutputLine[BytesPerLine * 3] = '"';
+  OutputLine[BytesPerLine * 4 + 1] = '"';
+  OutputLine[sizeof (OutputLine) - 1] = 0;
+  while (true)
+  {
+    char TempBuf[4];
+    unsigned char ByteValue = *pBuffer;
+    sprintf (TempBuf, "%02X", ByteValue);
+    OutputLine[LineBytes * 3] = TempBuf[0];
+    OutputLine[LineBytes * 3 + 1] = TempBuf[1];
+    if (ByteValue < 32)
+      ByteValue = '_'; // Can't print control characters, use underscore.
+    OutputLine[BytesPerLine * 3 + LineBytes + 1] = ByteValue;
+
+    pBuffer++;
+    LineBytes++;
+
+    if (LineBytes >= BytesPerLine || pBuffer >= pBufferEnd)
+    {
+      printf ("%*s%s\n", gIndentLevel, "", OutputLine);
+      LineBytes = 0;
+      memset (OutputLine, ' ', sizeof (OutputLine) - 1);
+      OutputLine[BytesPerLine * 3] = '"';
+      OutputLine[BytesPerLine * 4 + 1] = '"';
+      OutputLine[sizeof (OutputLine) - 1] = 0;
+    }
+
+    if (pBuffer >= pBufferEnd)
+      break;
+  }
+
+  if (gVerboseLevel < VERBOSE_EXTREME_DATA && BufferSize > MaxPrintByteCount)
+    printf ("%*s... and %d more bytes.\n", gIndentLevel, "",
+      BufferSize - MaxPrintByteCount);
 }
 
 
@@ -303,6 +383,12 @@ static status_t ObfuscateAttributes (BNode &SourceNode, BNode &DestNode)
       return ErrorNumber;
     }
 
+    if (gVerboseLevel >= VERBOSE_ATTR)
+    {
+      printf ("%*sAttribute \"%s\" of length %d.\n", gIndentLevel, "",
+        AttributeName, (int) AttributeInfo.size);
+    }
+
     if (AttributeInfo.size < 0)
     {
       ErrorNumber = B_BAD_VALUE;
@@ -323,6 +409,21 @@ static status_t ObfuscateAttributes (BNode &SourceNode, BNode &DestNode)
       return ErrorNumber;
     }
 
+    if (gVerboseLevel >= VERBOSE_DATA)
+    {
+      ssize_t AmountRead = SourceNode.ReadAttr (AttributeName,
+        AttributeInfo.type, 0 /* offset */, pData, AttributeInfo.size);
+      if (AmountRead == AttributeInfo.size)
+      {
+        DumpBuffer (pData, AttributeInfo.size);
+      }
+      else
+      {
+        DisplayErrorMessage (AttributeName, AmountRead,
+          "Unable to read attribute value (nonfatal - don't need it)");
+      }
+    }
+
     ObfuscateBuffer(pData, AttributeInfo.size);
 
     ssize_t AmountWritten = DestNode.WriteAttr (AttributeName,
@@ -339,11 +440,6 @@ static status_t ObfuscateAttributes (BNode &SourceNode, BNode &DestNode)
       return ErrorNumber;
     }
 
-    if (gVerbose)
-    {
-      printf ("%*sAttribute \"%s\" of length %d done.\n", gIndentLevel, "",
-        AttributeName, (int) AttributeInfo.size);
-    }
   }
 
   if (ErrorNumber == B_ENTRY_NOT_FOUND)
@@ -368,7 +464,7 @@ static status_t ObfuscateDirectory (BDirectory &SourceDir, BDirectory &DestDir)
   BPath DestPath (&DestDir, ".");
   BPath SourcePath (&SourceDir, ".");
 
-  if (gVerbose)
+  if (gVerboseLevel >= VERBOSE_DIR)
   {
     printf ("%*sDirectory \"%s\" is being obfuscated into \"%s\".\n",
       gIndentLevel, "", SourcePath.Path(), DestPath.Path());
@@ -377,8 +473,8 @@ static status_t ObfuscateDirectory (BDirectory &SourceDir, BDirectory &DestDir)
   ErrorNumber = ObfuscateAttributes (SourceDir, DestDir);
   if (ErrorNumber != B_OK)
   {
-    DisplayErrorMessage (SourcePath.Path(), ErrorNumber,
-      "Failed while processing directory");
+    cerr << "Failed while processing directory \"" <<
+      SourcePath.Path() << "\".\n";
     return ErrorNumber;
   }
 
@@ -407,7 +503,15 @@ int main (int argc, char** argv)
     if (strlen(argv[iArg]) > sizeof (ErrorMessage) - 100)
       cerr << "Argument is too long, ignoring it: " << argv[iArg] << endl;
     else if (strcmp(argv[iArg], "-v") == 0)
-      gVerbose = true;
+      gVerboseLevel = VERBOSE_DIR;
+    else if (strcmp(argv[iArg], "-vv") == 0)
+      gVerboseLevel = VERBOSE_FILE;
+    else if (strcmp(argv[iArg], "-vvv") == 0)
+      gVerboseLevel = VERBOSE_ATTR;
+    else if (strcmp(argv[iArg], "-vvvv") == 0)
+      gVerboseLevel = VERBOSE_DATA;
+    else if (strcmp(argv[iArg], "-vvvvv") == 0)
+      gVerboseLevel = VERBOSE_EXTREME_DATA;
     else if (eArgState == ASE_LOOKING_FOR_SOURCE)
     {
       ErrorNumber = SourceDir.SetTo(argv[iArg]);
@@ -428,7 +532,7 @@ int main (int argc, char** argv)
         ErrorNumber = create_directory(argv[iArg], 0777);
         if (ErrorNumber == B_OK)
         {
-          if (gVerbose)
+          if (gVerboseLevel >= VERBOSE_DIR)
             cout << "Created destination directory \"" << argv[iArg] << "\"\n";
         }
         else
@@ -459,10 +563,20 @@ int main (int argc, char** argv)
   }
   else
   {
+    if (gVerboseLevel > VERBOSE_NONE)
+    {
+      static const char* VerboseNames[VERBOSE_MAX] = {
+        "None", "Directory", "File", "Attribute", "Data", "Extreme Data"};
+      printf ("Starting obfuscation, verbosity level '%s'.\n",
+        VerboseNames[gVerboseLevel]);
+    }
     ErrorNumber = ObfuscateDirectory (SourceDir, DestDir);
   }
 
-  cerr << PROGRAM_NAME " finished, return code " << ErrorNumber << ".\n";
+  if (gVerboseLevel > VERBOSE_NONE)
+  {
+    cerr << PROGRAM_NAME " finished, return code " << ErrorNumber << ".\n";
+  }
 
   return ErrorNumber; // Zero for success.
 }
