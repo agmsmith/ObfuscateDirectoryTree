@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.12 2014/04/25 15:13:14 agmsmith Exp $
+ * $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.13 2014/04/25 15:23:25 agmsmith Exp $
  *
  * This is a BeOS program for obfuscating files and directories.  It
  * recursively copies the given file or directory to ones where all
@@ -13,6 +13,9 @@
  * it small enough to fit in a Zip file.
  *
  * $Log: ObfuscatorOfDirectoryTrees.cpp,v $
+ * Revision 1.13  2014/04/25 15:23:25  agmsmith
+ * Oops, forgot to NUL terminate the string.
+ *
  * Revision 1.12  2014/04/25 15:13:14  agmsmith
  * Test if obfuscated name already exists and try another one if it does,
  * can happen for short obfuscated names.
@@ -244,7 +247,7 @@ static ostream& PrintUsage (ostream& OutputStream)
   OutputStream << "Copyright © 2014 by Alexander G. M. Smith.\n";
   OutputStream << "Released to the public domain.\n\n";
   WrapTextToStream (OutputStream, "Compiled on " __DATE__ " at " __TIME__
-".  $Revision: 1.12 $  $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.12 2014/04/25 15:13:14 agmsmith Exp $");
+".  $Revision: 1.13 $  $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.13 2014/04/25 15:23:25 agmsmith Exp $");
   OutputStream << "\n"
 "This is a program for copying a directory tree to a new directory tree with\n"
 "most of the identifying information obfuscated.  File and directory names,\n"
@@ -458,7 +461,7 @@ static status_t ObfuscateAttributes (BNode &SourceNode, BNode &DestNode)
           "Unable to read attribute value (nonfatal - don't need data)");
       }
     }
-    
+
     // For string type attributes, put the NUL back at the end of the
     // obfuscated string, otherwise it looks weird in the attribute viewer.
 
@@ -676,6 +679,7 @@ static status_t ObfuscateDirectory (BDirectory &SourceDir, BDirectory &DestDir)
         NewLength = B_FILE_NAME_LENGTH - 1;
 
       ObfuscateBuffer (CurDestName, NewLength);
+      CurDestName[NewLength] = 0;
 
       if (!DestDir.Contains(CurDestName))
         break; // Doesn't contain the new name, safe to use it.
