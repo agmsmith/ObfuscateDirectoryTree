@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.10 2014/04/25 01:02:10 agmsmith Exp $
+ * $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.11 2014/04/25 14:13:59 agmsmith Exp $
  *
  * This is a BeOS program for obfuscating files and directories.  It
  * recursively copies the given file or directory to ones where all
@@ -13,6 +13,10 @@
  * it small enough to fit in a Zip file.
  *
  * $Log: ObfuscatorOfDirectoryTrees.cpp,v $
+ * Revision 1.11  2014/04/25 14:13:59  agmsmith
+ * Truncate data (attributes and file contents) which are too big to fit
+ * in memory (500MB limit).
+ *
  * Revision 1.10  2014/04/25 01:02:10  agmsmith
  * Add a NUL byte at the end of string attributes, so they look better in the
  * attribute viewer.  Might affect compression a bit, but so what.
@@ -78,7 +82,7 @@
  */
 
 #define PROGRAM_NAME "ObfuscatorOfDirectoryTrees"
-
+static const int MAX_OBFUSCATE_BUFFER_SIZE = 500000000;
 int gIndentLevel = 0;
 long long int gSequenceNumber = 0;
 
@@ -236,15 +240,14 @@ static ostream& PrintUsage (ostream& OutputStream)
   OutputStream << "Copyright © 2014 by Alexander G. M. Smith.\n";
   OutputStream << "Released to the public domain.\n\n";
   WrapTextToStream (OutputStream, "Compiled on " __DATE__ " at " __TIME__
-".  $Revision: 1.10 $  $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.10 2014/04/25 01:02:10 agmsmith Exp $");
+".  $Revision: 1.11 $  $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.11 2014/04/25 14:13:59 agmsmith Exp $");
   OutputStream << "\n"
 "This is a program for copying a directory tree to a new directory tree with\n"
 "most of the identifying information obfuscated.  File and directory names,\n"
 "file contents and so on are replaced by sequential numbers, mostly consisting\n"
-"of leading zeroes so that the new value matches the length of the old value.\n"
-"Attribute names are kept, but values are converted to sequential numbers.  The\n"
-"sequential numbers are used so that a directory listing will be in the same\n"
-"order as the original one.\n"
+"of leading zeroes so that the new value matches the length of the old value,\n"
+"up to a RAM buffer size limit of a few hundred megabytes.  Attribute names\n"
+"are kept, but values are converted to sequential numbers.\n"
 "\n"
 "The original purpose of this program is to recreate a Haiku OS file system bug\n"
 "with indexing of attributes.  Since the test data is personal e-mails, and is\n"
@@ -262,7 +265,7 @@ static ostream& PrintUsage (ostream& OutputStream)
 
 /******************************************************************************
  * Print out a readable version of the given data buffer.  Hex dump plus
- * strings.  Cut off after about 1K.  Indents.
+ * strings.  Optionally cuts off after a few hundred bytes.  Indents too.
  */
 
 static void DumpBuffer (const char *pBuffer, int BufferSize)
@@ -414,6 +417,18 @@ static status_t ObfuscateAttributes (BNode &SourceNode, BNode &DestNode)
       return ErrorNumber;
     }
 
+    if (AttributeInfo.size > MAX_OBFUSCATE_BUFFER_SIZE)
+    {
+      if (gVerboseLevel >= VERBOSE_ATTR)
+      {
+        AutoIndentIncrement AutoIndentMore;
+        printf ("%*sTruncating attribute \"%s\" size from %Ld down to %d.\n",
+          gIndentLevel, "", AttributeName, AttributeInfo.size,
+          MAX_OBFUSCATE_BUFFER_SIZE);
+      }
+      AttributeInfo.size = MAX_OBFUSCATE_BUFFER_SIZE;
+    }
+
     char *pData = new (std::nothrow) char [AttributeInfo.size];
     if (pData == NULL)
     {
@@ -545,6 +560,17 @@ static status_t ObfuscateFile (BEntry &SourceEntry, BDirectory &DestDir,
 
   if (FileDataSize > 0)
   {
+    if (FileDataSize > MAX_OBFUSCATE_BUFFER_SIZE)
+    {
+      if (gVerboseLevel >= VERBOSE_FILE)
+      {
+        printf ("%*sTruncating file \"%s\" size from %Ld down to %d.\n",
+          gIndentLevel, "", SourceName, FileDataSize,
+          MAX_OBFUSCATE_BUFFER_SIZE);
+      }
+      FileDataSize = MAX_OBFUSCATE_BUFFER_SIZE;
+    }
+
     char *pFileData = new (std::nothrow) char [FileDataSize];
     if (pFileData == NULL)
     {
