@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.7 2014/04/24 19:29:49 agmsmith Exp agmsmith $
+ * $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.8 2014/04/24 21:02:25 agmsmith Exp agmsmith $
  *
  * This is a BeOS program for obfuscating files and directories.  It
  * recursively copies the given file or directory to ones where all
@@ -13,6 +13,9 @@
  * it small enough to fit in a Zip file.
  *
  * $Log: ObfuscatorOfDirectoryTrees.cpp,v $
+ * Revision 1.8  2014/04/24 21:02:25  agmsmith
+ * Added verbosity levels and dump data at the higher levels.
+ *
  * Revision 1.7  2014/04/24 19:29:49  agmsmith
  * Now partly works - copying just the attributes of the initial directory,
  * and obfuscating them!  Now on to recursion...
@@ -43,6 +46,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <malloc.h>
+#include <sys/stat.h>
 
 /* Standard C++ library. */
 
@@ -224,7 +228,7 @@ static ostream& PrintUsage (ostream& OutputStream)
   OutputStream << "Copyright © 2014 by Alexander G. M. Smith.\n";
   OutputStream << "Released to the public domain.\n\n";
   WrapTextToStream (OutputStream, "Compiled on " __DATE__ " at " __TIME__
-".  $Revision: 1.7 $  $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.7 2014/04/24 19:29:49 agmsmith Exp agmsmith $");
+".  $Revision: 1.8 $  $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.8 2014/04/24 21:02:25 agmsmith Exp agmsmith $");
   OutputStream << "\n"
 "This is a program for copying a directory tree to a new directory tree with\n"
 "most of the identifying information obfuscated.  File and directory names,\n"
@@ -420,7 +424,7 @@ static status_t ObfuscateAttributes (BNode &SourceNode, BNode &DestNode)
       else
       {
         DisplayErrorMessage (AttributeName, AmountRead,
-          "Unable to read attribute value (nonfatal - don't need it)");
+          "Unable to read attribute value (nonfatal - don't need data)");
       }
     }
 
@@ -440,7 +444,7 @@ static status_t ObfuscateAttributes (BNode &SourceNode, BNode &DestNode)
       return ErrorNumber;
     }
 
-  }
+  } // end while GetNextAttrName
 
   if (ErrorNumber == B_ENTRY_NOT_FOUND)
     ErrorNumber = B_OK; // Reaching end of list isn't an error.
@@ -449,6 +453,117 @@ static status_t ObfuscateAttributes (BNode &SourceNode, BNode &DestNode)
       "ObfuscateAttributes");
 
   return ErrorNumber;
+}
+
+
+/******************************************************************************
+ * Given an already existing source file, create a destination one with
+ * obfuscated contents.
+ */
+
+static status_t ObfuscateFile (BEntry &SourceEntry, BDirectory &DestDir,
+  const char *DestName)
+{
+  AutoIndentIncrement AutoIndenter;
+  char ErrorMessage[B_FILE_NAME_LENGTH+100];
+  status_t ErrorNumber;
+
+  char SourceName[B_FILE_NAME_LENGTH];
+  SourceEntry.GetName (SourceName);
+
+  BFile SourceFile (&SourceEntry, B_READ_ONLY);
+  ErrorNumber = SourceFile.InitCheck();
+  if (ErrorNumber != B_OK)
+  {
+    DisplayErrorMessage (SourceName, ErrorNumber,
+      "ObfuscateFile: Unable to open file for reading");
+    return ErrorNumber;
+  }
+
+  BFile DestFile;
+  ErrorNumber = DestDir.CreateFile (DestName, &DestFile,
+    true /* fail if exists */);
+  if (ErrorNumber != B_OK)
+  {
+    DisplayErrorMessage (DestName, ErrorNumber,
+      "ObfuscateFile: Unable to open file for writing");
+    return ErrorNumber;
+  }
+
+  if (gVerboseLevel >= VERBOSE_FILE)
+  {
+    printf ("%*sFile \"%s\" is being obfuscated into \"%s\".\n",
+      gIndentLevel, "", SourceName, DestName);
+  }
+
+  ErrorNumber = ObfuscateAttributes (SourceFile, DestFile);
+  if (ErrorNumber != B_OK)
+  {
+    cerr << "Failed while obfuscating attributes of file \"" <<
+      SourceName << "\".\n";
+    return ErrorNumber;
+  }
+
+  off_t FileDataSize = 0;
+  ErrorNumber = SourceFile.GetSize (&FileDataSize);
+  if (ErrorNumber != B_OK)
+  {
+    DisplayErrorMessage (SourceName, ErrorNumber,
+      "ObfuscateFile: Unable to get size of file");
+    return ErrorNumber;
+  }
+
+  AutoIndentIncrement AutoIndentOneMore;
+
+  if (gVerboseLevel >= VERBOSE_DATA)
+  {
+    printf ("%*sFile contents of length %d.\n", gIndentLevel, "",
+      (int) FileDataSize);
+  }
+
+  if (FileDataSize > 0)
+  {
+    char *pFileData = new (std::nothrow) char [FileDataSize];
+    if (pFileData == NULL)
+    {
+      ErrorNumber = B_NO_MEMORY;
+      sprintf (ErrorMessage,
+        "Unable to allocate memory for file \"%s\" data size %Ld",
+        SourceName, FileDataSize);
+      DisplayErrorMessage (ErrorMessage, ErrorNumber, "ObfuscateFile");
+      return ErrorNumber;
+    }
+
+    if (gVerboseLevel >= VERBOSE_DATA)
+    {
+      ssize_t AmountRead = SourceFile.Read (pFileData, FileDataSize);
+      if (AmountRead == FileDataSize)
+      {
+        DumpBuffer (pFileData, FileDataSize);
+      }
+      else
+      {
+        DisplayErrorMessage (SourceName, AmountRead,
+          "Unable to read file contents (nonfatal - don't need data)");
+      }
+    }
+
+    ObfuscateBuffer(pFileData, FileDataSize);
+
+    ssize_t AmountWritten = DestFile.Write (pFileData, FileDataSize);
+    delete [] pFileData; // Get rid of buffer now, makes error handling easier.
+    if (AmountWritten != FileDataSize)
+    {
+      ErrorNumber = AmountWritten;
+      if (ErrorNumber >= 0)
+        ErrorNumber = B_IO_ERROR;
+      sprintf (ErrorMessage, "Only wrote %d bytes of %d for file \"%s\" data",
+        (int) AmountWritten, (int) FileDataSize, DestName);
+      DisplayErrorMessage (ErrorMessage, ErrorNumber, "ObfuscateFile");
+      return ErrorNumber;
+    }
+  }
+  return B_OK;
 }
 
 
@@ -473,11 +588,90 @@ static status_t ObfuscateDirectory (BDirectory &SourceDir, BDirectory &DestDir)
   ErrorNumber = ObfuscateAttributes (SourceDir, DestDir);
   if (ErrorNumber != B_OK)
   {
-    cerr << "Failed while processing directory \"" <<
+    cerr << "Failed while obfuscating attributes of directory \"" <<
       SourcePath.Path() << "\".\n";
     return ErrorNumber;
   }
 
+  SourceDir.Rewind();
+
+  BEntry CurSourceEntry;
+  char CurDestName[B_FILE_NAME_LENGTH];
+  char CurSourceName[B_FILE_NAME_LENGTH];
+  struct stat CurSourceStat;
+
+  while (B_OK == (ErrorNumber = SourceDir.GetNextEntry(&CurSourceEntry)))
+  {
+    ErrorNumber = CurSourceEntry.GetName (CurSourceName);
+    if (ErrorNumber != B_OK)
+    {
+      DisplayErrorMessage (SourcePath.Path(), ErrorNumber,
+        "ObfuscateDirectory: Problems getting contained item name");
+      return ErrorNumber;
+    }
+
+    strcpy (CurDestName, CurSourceName);
+    ObfuscateBuffer(CurDestName, strlen (CurDestName));
+
+    ErrorNumber = CurSourceEntry.GetStat(&CurSourceStat);
+    if (ErrorNumber != B_OK)
+    {
+      DisplayErrorMessage (CurSourceName, ErrorNumber,
+        "ObfuscateDirectory: Problems reading entry status");
+      return ErrorNumber;
+    }
+
+    if (S_ISREG(CurSourceStat.st_mode))
+    {
+      ErrorNumber = ObfuscateFile (CurSourceEntry, DestDir, CurDestName);
+    }
+    else if (S_ISDIR(CurSourceStat.st_mode))
+    {
+      BDirectory SubDestDir;
+      ErrorNumber = DestDir.CreateDirectory (CurDestName, &SubDestDir);
+      if (ErrorNumber != B_OK)
+      {
+        DisplayErrorMessage (CurDestName, ErrorNumber,
+          "ObfuscateDirectory: Failed to create destination directory");
+        // Fall through for directory level error message.
+      }
+      else
+      {
+        AutoIndentIncrement AutoIndenter;
+        BDirectory SubSourceDir (&CurSourceEntry);
+        ErrorNumber = ObfuscateDirectory (SubSourceDir, SubDestDir);
+      }
+    }
+    else if (S_ISLNK(CurSourceStat.st_mode))
+    {
+      if (gVerboseLevel >= VERBOSE_FILE)
+        printf ("%*sSymbolic link \"%s\" will be ignored.\n",
+          gIndentLevel, "", CurSourceName);
+    }
+    else
+    {
+      if (gVerboseLevel >= VERBOSE_FILE)
+        printf ("%*sHard link or other unknown file system entity "
+          "\"%s\" will be ignored.\n", gIndentLevel, "", CurSourceName);
+    }
+
+    if (ErrorNumber != B_OK)
+    {
+      cerr << "ObfuscateDirectory failed while converting item \"" <<
+        CurSourceName << "\" in directory \"" << SourcePath.Path() <<
+        "\" into item \"" << CurDestName << "\" in directory \"" <<
+        DestPath.Path() << "\".\n";
+      return ErrorNumber;
+    }
+  }
+
+  if (ErrorNumber == B_ENTRY_NOT_FOUND)
+    ErrorNumber = B_OK; // Reaching end of list isn't an error.
+  else
+  {
+    DisplayErrorMessage (SourcePath.Path(), ErrorNumber,
+      "ObfuscateDirectory: Problems reading directory entries");
+  }
   return B_OK;
 }
 
