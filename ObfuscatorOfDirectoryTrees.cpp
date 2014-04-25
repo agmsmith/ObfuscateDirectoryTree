@@ -1,5 +1,5 @@
 /******************************************************************************
- * $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.11 2014/04/25 14:13:59 agmsmith Exp $
+ * $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.12 2014/04/25 15:13:14 agmsmith Exp $
  *
  * This is a BeOS program for obfuscating files and directories.  It
  * recursively copies the given file or directory to ones where all
@@ -13,6 +13,10 @@
  * it small enough to fit in a Zip file.
  *
  * $Log: ObfuscatorOfDirectoryTrees.cpp,v $
+ * Revision 1.12  2014/04/25 15:13:14  agmsmith
+ * Test if obfuscated name already exists and try another one if it does,
+ * can happen for short obfuscated names.
+ *
  * Revision 1.11  2014/04/25 14:13:59  agmsmith
  * Truncate data (attributes and file contents) which are too big to fit
  * in memory (500MB limit).
@@ -240,7 +244,7 @@ static ostream& PrintUsage (ostream& OutputStream)
   OutputStream << "Copyright © 2014 by Alexander G. M. Smith.\n";
   OutputStream << "Released to the public domain.\n\n";
   WrapTextToStream (OutputStream, "Compiled on " __DATE__ " at " __TIME__
-".  $Revision: 1.11 $  $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.11 2014/04/25 14:13:59 agmsmith Exp $");
+".  $Revision: 1.12 $  $Header: /CommonBe/agmsmith/Programming/Obfuscate\040Directory\040Tree/RCS/ObfuscatorOfDirectoryTrees.cpp,v 1.12 2014/04/25 15:13:14 agmsmith Exp $");
   OutputStream << "\n"
 "This is a program for copying a directory tree to a new directory tree with\n"
 "most of the identifying information obfuscated.  File and directory names,\n"
@@ -658,8 +662,33 @@ static status_t ObfuscateDirectory (BDirectory &SourceDir, BDirectory &DestDir)
       return ErrorNumber;
     }
 
-    strcpy (CurDestName, CurSourceName);
-    ObfuscateBuffer(CurDestName, strlen (CurDestName));
+    // Generate a new obfuscated name.  If it collides with existing obfuscated
+    // names, try a few other names.  Can happen with short names, indeed there
+    // are only 10 possible one letter names.  If there are too many
+    // collisions, try a longer name, though that breaks the obfuscation rules.
+
+    int GenerateNameRetryCount;
+    for (GenerateNameRetryCount = 0; GenerateNameRetryCount < 48;
+    GenerateNameRetryCount++)
+    {
+      int NewLength = strlen (CurSourceName) + (GenerateNameRetryCount >> 3);
+      if (NewLength >= B_FILE_NAME_LENGTH)
+        NewLength = B_FILE_NAME_LENGTH - 1;
+
+      ObfuscateBuffer (CurDestName, NewLength);
+
+      if (!DestDir.Contains(CurDestName))
+        break; // Doesn't contain the new name, safe to use it.
+
+      if (gVerboseLevel > VERBOSE_NONE)
+      {
+        AutoIndentIncrement AutoIndentMore;
+
+        printf ("%*sName \"%s\" already exists in directory \"%s\", "
+          "will try another possibly longer name.\n", gIndentLevel, "",
+          CurDestName, DestPath.Path());
+      }
+    }
 
     ErrorNumber = CurSourceEntry.GetStat(&CurSourceStat);
     if (ErrorNumber != B_OK)
